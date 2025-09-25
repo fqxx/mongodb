@@ -1,7 +1,15 @@
-const mongodb = require("mongodb");
+// utils.js
+const mongoose = require("mongoose");
 
 function exportDocument(document) {
     if (!document) return;
+    
+    // Convert Mongoose document to plain object
+    if (document.toObject) {
+        document = document.toObject();
+    }
+    
+    // Ensure _id is a string
     if (document._id && typeof document._id !== "string") {
         document._id = document._id.toString();
     }
@@ -22,7 +30,16 @@ function safeObjectArgument(object) {
         }, {});
     }
     if (typeof object !== "object") return {};
-    if (object._id) object._id = mongodb.ObjectID(object._id);
+    
+    // Convert string IDs to ObjectId for MongoDB queries
+    if (object._id && typeof object._id === "string") {
+        try {
+            object._id = mongoose.Types.ObjectId(object._id);
+        } catch (e) {
+            // If not a valid ObjectId, leave as is
+            console.log(`[MongoDB][ERROR] Invalid ObjectId: ${object._id}`);
+        }
+    }
     return object;
 }
 
