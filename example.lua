@@ -1,91 +1,93 @@
-local function printFiveUsers()
-    local params = {
-        collection = "users",
-        query = {},
-        limit = 5,
-        options = {
-            -- Include username and exclude _id field
-            projection = {username = 1, _id = 0}
-        }
+-- creating schema
+
+local restaurantSchema = {
+    identifier = { type = "String", required = true, unique = true },
+    name = { type = "String", required = true },
+    coords = {
+        x = { type = "Number", required = true },
+        y = { type = "Number", required = true },
+        z = { type = "Number", required = true },
+    },
+    items = {
+        type = "Array",
+        schema = {
+            {
+                name = { type = "String", required = true },
+                price = { type = "Number", required = true },
+                metadata = { type = "Object", required = false },
+            }
+        },
+        required = false,
+        default = {}
+    },
+    zones = {
+        type = "Object",
+        required = true
     }
-    exports.mongodb:find(params, function (success, result)
-        if not success then
-            return
-        end
+}
 
-        print("\n** 5 users")
-        for i, document in ipairs(result) do
-            for k, v in pairs(document) do
-                print("* "..tostring(k).." = \""..tostring(v).."\"")
-            end
-        end
-    end)
-end
-
-local function printUser(id)
-    exports.mongodb:findOne({ collection="users", query = { _id = id } }, function (success, result)
-        if not success then
-            return
-        end
-        print("\n** User document")
-        for k, v in pairs(result[1]) do
-            print("* "..tostring(k).." = \""..tostring(v).."\"")
-        end
-    end)
-end
-
-AddEventHandler("onDatabaseConnect", function (databaseName)
-    print("[MongoDB][Example] onDatabaseConnect: "..tostring(databaseName))
-
-    local username = "User0"
-
-    -- Find user by username
-    exports.mongodb:findOne({ collection="users", query = { username = username } }, function (success, result)
-        if not success then
-            print("[MongoDB][Example] Error in findOne: "..tostring(result))
-            return
-        end
-        -- Print user if already exists
-        if #result > 0 then
-            print("[MongoDB][Example] User is already created")
-            printUser(result[1]._id)
-            exports.mongodb:updateOne({ collection="users", query = { _id = result[1]._id }, update = { ["$set"] = { first_name = "Bob" } } })
-            return
-        end
-        print("[MongoDB][Example] User does not exist. Creating...")
-        exports.mongodb:insertOne({ collection="users", document = { username = username, password = "123" } }, function (success, result, insertedIds)
-            if not success then
-                print("[MongoDB][Example] Error in insertOne: "..tostring(result))
-                return
-            end
-            print("[MongoDB][Example] User created. New ID: "..tostring(insertedIds[1]))
-            printUser(insertedIds[1])
-        end)
-    end)
-
-    exports.mongodb:count({collection="users"}, function (success, result)
-        if not success then
-            print("[MongoDB][Example] Error in count: "..tostring(result))
-            return
-        end
-        print("[MongoDB][Example] Current users count: "..tostring(result))
-        if result < 10 then
-            local insertUsers = {}
-            for i = 1, 10 do
-                table.insert(insertUsers, { username = "User"..i, password = "123456" })
-            end
-
-            exports.mongodb:insert({ collection="users", documents = insertUsers }, function (success, result)
-                if not success then
-                    print("[MongoDB][Example] Failed to insert users: "..tostring(result))
-                    return
-                end
-                print("[MongoDB][Example] Inserted "..tostring(result).." new users")
-
-                printFiveUsers()
-            end)
-        else
-            printFiveUsers()
-        end
-    end)
+CreateThread(function()
+    exports.mongodb:createSchema('restaurants', restaurantSchema)
 end)
+
+--example repository
+
+Repository = {}
+convertVectorsToTable = function(tbl)
+    if type(tbl) ~= "table" then return tbl end
+    local newTbl = {}
+    for k, v in pairs(tbl) do
+        if type(v) == "vector3" then
+            newTbl[k] = { x = v.x, y = v.y, z = v.z }
+        elseif type(v) == "vector2" then
+            newTbl[k] = { x = v.x, y = v.y }
+        elseif type(v) == "table" then
+            newTbl[k] = convertVectorsToTable(v)
+        else
+            newTbl[k] = v
+        end
+    end
+    return newTbl
+end
+
+Repository.addRestaurant = function(restaurant)
+    restaurant = convertVectorsToTable(restaurant)
+    local response = exports.mongodb:insertOne({
+        collection = 'restaurants',
+        document = restaurant
+    })
+    return response
+end
+
+Repository.updateRestaurant = function(restaurant)
+    restaurant = convertVectorsToTable(restaurant)
+    return exports.mongodb:updateOne({
+        collection = 'restaurants',
+        query = { _id = restaurant._id },
+        update = { ['$set'] = restaurant }
+    })
+end
+
+Repository.getRestaurants = function()
+    local response = exports.mongodb:find({
+        collection = 'restaurants',
+        query = {}
+    })
+    return response and response or {}
+end
+
+Repository.addItemToRestaurant = function(restaurantId, item)
+    return exports.mongodb:updateOne({
+        collection = 'restaurants',
+        query = { identifier = restaurantId },
+        update = { ['$push'] = { items = item } }
+    })
+end
+
+Repository.removeItemFromRestaurant = function(restaurantId, itemId)
+    return exports.mongodb:updateOne({
+        collection = 'restaurants',
+        query = { identifier = restaurantId },
+        update = { ['$pull'] = { items = { id = itemId } } }
+    })
+end
